@@ -35,7 +35,7 @@ TEST_RAW_PATH = PROCESSED_DIR / "test_raw.csv"
 PREPROCESSOR_PATH = PROCESSED_DIR / "preprocessor.joblib"
 FAIRNESS_DIR = PROJECT_ROOT / "data" / "fairness_reports"
 FAIRNESS_REPORT_PATH = FAIRNESS_DIR / "fairness_report.csv"
-FAIRNESS_GROUPS = ["RIAGENDR", "AGE_GROUP", "RIDRETH1", "INDHHIN2"]
+FAIRNESS_GROUPS = ["RIAGENDR", "AGE_GROUP", "RIDRETH1", "INDHHIN2", "DMDEDUC2"]
 MIN_GROUP_SIZE = 20
 
 LOW_RISK_LABELS = {"Minimal", "Mild"}
@@ -71,7 +71,22 @@ GROUP_LABELS = {
         77: "Refused",
         99: "Unknown",
     },
+    "DMDEDUC2": {
+        1: "Less than 9th grade",
+        2: "9th-11th grade",
+        3: "High school graduate/GED",
+        4: "Some college/AA degree",
+        5: "College graduate or above",
+        7: "Refused",
+        9: "Don't know",
+    },
 }
+
+
+def _safe_divide(numerator: float, denominator: float) -> float:
+    """Divide safely for sparse groups."""
+
+    return float(numerator / denominator) if denominator else 0.0
 
 
 def _multiclass_error_rates(
@@ -87,8 +102,8 @@ def _multiclass_error_rates(
     fn = cm.sum(axis=1) - tp
     tn = cm.sum() - (tp + fp + fn)
 
-    false_positive_rate = float(fp.sum() / (fp.sum() + tn.sum())) if (fp.sum() + tn.sum()) else 0.0
-    false_negative_rate = float(fn.sum() / (fn.sum() + tp.sum())) if (fn.sum() + tp.sum()) else 0.0
+    false_positive_rate = _safe_divide(float(fp.sum()), float(fp.sum() + tn.sum()))
+    false_negative_rate = _safe_divide(float(fn.sum()), float(fn.sum() + tp.sum()))
     return false_positive_rate, false_negative_rate
 
 
@@ -106,30 +121,49 @@ def _high_risk_mask(labels: np.ndarray) -> np.ndarray:
     return np.isin(labels.astype(str), list(HIGH_RISK_LABELS))
 
 
-def _binary_high_risk_metrics(y_true_labels: np.ndarray, y_pred_labels: np.ndarray) -> Tuple[float, float]:
+def _binary_high_risk_metrics(y_true_labels: np.ndarray, y_pred_labels: np.ndarray) -> Dict[str, float]:
     """Calculate high-risk false-negative and selection rates."""
 
     if len(y_true_labels) == 0:
-        return 0.0, 0.0
+        return {
+            "actual_count": 0,
+            "predicted_count": 0,
+            "false_negative_count": 0,
+            "false_negative_rate": 0.0,
+            "selection_rate": 0.0,
+        }
 
     y_true_high = _high_risk_mask(y_true_labels)
     y_pred_high = _high_risk_mask(y_pred_labels)
     false_negative_count = int((y_true_high & ~y_pred_high).sum())
     actual_high_count = int(y_true_high.sum())
-    high_risk_false_negative_rate = (
-        float(false_negative_count / actual_high_count)
-        if actual_high_count
-        else 0.0
-    )
-    high_risk_selection_rate = float(y_pred_high.sum() / len(y_pred_high))
-    return high_risk_false_negative_rate, high_risk_selection_rate
+    predicted_high_count = int(y_pred_high.sum())
+    return {
+        "actual_count": actual_high_count,
+        "predicted_count": predicted_high_count,
+        "false_negative_count": false_negative_count,
+        "false_negative_rate": _safe_divide(false_negative_count, actual_high_count),
+        "selection_rate": _safe_divide(predicted_high_count, len(y_pred_high)),
+    }
+
+
+def _is_unknown_value(group_column: str, group_value: object) -> bool:
+    """Return True for missing, refused, or unknown demographic values."""
+
+    if group_value == "__MISSING__" or pd.isna(group_value):
+        return True
+    try:
+        lookup_value = int(float(group_value))
+    except (TypeError, ValueError):
+        return str(group_value).strip() == ""
+    return lookup_value in {77, 99} or (group_column == "DMDEDUC2" and lookup_value in {7, 9})
 
 
 def _group_label(group_column: str, group_value: object) -> str:
     """Return a readable demographic label while keeping unknown values safe."""
 
-    if pd.isna(group_value):
-        return "Missing"
+    if group_value == "__MISSING__" or pd.isna(group_value):
+        return "Unknown"
     if group_column == "AGE_GROUP":
         return str(group_value)
 
@@ -138,31 +172,47 @@ def _group_label(group_column: str, group_value: object) -> str:
     except (TypeError, ValueError):
         lookup_value = group_value
 
+    if group_column == "INDHHIN2" and lookup_value in {77, 99}:
+        return "Unknown"
     return GROUP_LABELS.get(group_column, {}).get(lookup_value, f"Unknown / Other ({group_value})")
 
 
-def _fairness_flag(sample_size: int, false_negative_rate_gap: float, f1_gap: float, accuracy_gap: float) -> str:
+def _fairness_flag(
+    sample_size: int,
+    false_negative_rate_gap: float,
+    high_risk_false_negative_rate: float,
+    overall_high_risk_false_negative_rate: float,
+    f1_gap: float,
+    accuracy_gap: float,
+) -> str:
     """Classify a group-level fairness finding for review."""
 
     if sample_size < MIN_GROUP_SIZE:
         return "Low Sample Size"
-    if false_negative_rate_gap > 0.10:
+    if (
+        false_negative_rate_gap > 0.10
+        or high_risk_false_negative_rate > overall_high_risk_false_negative_rate + 0.10
+    ):
         return "Warning"
     if f1_gap < -0.10 or accuracy_gap < -0.10:
         return "Review"
     return "OK"
 
 
-def _fairness_note(flag: str, group_label: str, sample_size: int) -> str:
+def _fairness_note(flag: str, is_unknown_value: bool) -> str:
     """Return a short human-readable explanation for a fairness row."""
 
     if flag == "Low Sample Size":
-        return f"{group_label} has fewer than {MIN_GROUP_SIZE} test rows; interpret with caution."
-    if flag == "Warning":
-        return f"{group_label} has a higher false-negative gap than the overall test set."
-    if flag == "Review":
-        return f"{group_label} has lower model performance than the overall test set."
-    return f"{group_label} is within the configured review thresholds."
+        note = f"Group has fewer than {MIN_GROUP_SIZE} records; interpret with caution."
+    elif flag == "Warning":
+        note = "False negative rate is higher than overall; clinical review recommended."
+    elif flag == "Review":
+        note = "Performance is lower than overall; review recommended."
+    else:
+        note = "No major disparity detected."
+    if is_unknown_value:
+        note = f"{note} Demographic value is missing, refused, or unknown."
+    return note
 
 
 def _overall_metrics(
@@ -175,7 +225,7 @@ def _overall_metrics(
     """Calculate overall metrics used as group comparison baselines."""
 
     _, false_negative_rate = _multiclass_error_rates(y_true, y_pred, labels)
-    high_risk_false_negative_rate, high_risk_selection_rate = _binary_high_risk_metrics(
+    high_risk = _binary_high_risk_metrics(
         y_true_labels,
         y_pred_labels,
     )
@@ -184,8 +234,8 @@ def _overall_metrics(
         "f1": float(f1_score(y_true, y_pred, average="weighted", zero_division=0)),
         "false_negative_rate": false_negative_rate,
         "selection_rate": _selection_rate(y_pred_labels),
-        "high_risk_false_negative_rate": high_risk_false_negative_rate,
-        "high_risk_selection_rate": high_risk_selection_rate,
+        "high_risk_false_negative_rate": high_risk["false_negative_rate"],
+        "high_risk_selection_rate": high_risk["selection_rate"],
     }
 
 
@@ -202,8 +252,9 @@ def calculate_group_metrics(
     """Calculate requested fairness metrics for one grouping column."""
 
     rows = []
-    for group_value in sorted(group_values.dropna().unique(), key=lambda value: str(value)):
-        mask = group_values == group_value
+    safe_group_values = group_values.astype(object).where(group_values.notna(), "__MISSING__")
+    for group_value in sorted(safe_group_values.unique(), key=lambda value: str(value)):
+        mask = safe_group_values == group_value
         y_true_group = y_true[mask.to_numpy()]
         y_pred_group = y_pred[mask.to_numpy()]
         y_true_labels_group = y_true_labels[mask.to_numpy()]
@@ -219,7 +270,7 @@ def calculate_group_metrics(
         )
 
         selection_rate = _selection_rate(y_pred_labels_group)
-        high_risk_false_negative_rate, high_risk_selection_rate = _binary_high_risk_metrics(
+        high_risk = _binary_high_risk_metrics(
             y_true_labels_group,
             y_pred_labels_group,
         )
@@ -229,16 +280,22 @@ def calculate_group_metrics(
         f1_gap = f1 - overall["f1"]
         false_negative_rate_gap = false_negative_rate - overall["false_negative_rate"]
         selection_rate_gap = selection_rate - overall["selection_rate"]
-        high_risk_false_negative_rate_gap = (
-            high_risk_false_negative_rate - overall["high_risk_false_negative_rate"]
-        )
-        high_risk_selection_rate_gap = high_risk_selection_rate - overall["high_risk_selection_rate"]
         sample_size = int(len(y_true_group))
         group_label = _group_label(group_column, group_value)
-        fairness_flag = _fairness_flag(sample_size, false_negative_rate_gap, f1_gap, accuracy_gap)
+        unknown_value = _is_unknown_value(group_column, group_value)
+        fairness_flag = _fairness_flag(
+            sample_size,
+            false_negative_rate_gap,
+            high_risk["false_negative_rate"],
+            overall["high_risk_false_negative_rate"],
+            f1_gap,
+            accuracy_gap,
+        )
 
         rows.append(
             {
+                "attribute": group_column,
+                "group": group_value,
                 "group_column": group_column,
                 "group_value": group_value,
                 "group_label": group_label,
@@ -254,18 +311,22 @@ def calculate_group_metrics(
                 "false_negative_rate": false_negative_rate,
                 "selection_rate": selection_rate,
                 "risk_percentage": float(selection_rate * 100),
-                "high_risk_false_negative_rate": high_risk_false_negative_rate,
-                "high_risk_selection_rate": high_risk_selection_rate,
+                "high_risk_actual_count": high_risk["actual_count"],
+                "high_risk_predicted_count": high_risk["predicted_count"],
+                "high_risk_false_negative_count": high_risk["false_negative_count"],
+                "high_risk_false_negative_rate": high_risk["false_negative_rate"],
+                "high_risk_selection_rate": high_risk["selection_rate"],
                 "overall_accuracy": overall["accuracy"],
                 "overall_f1": overall["f1"],
+                "overall_false_negative_rate": overall["false_negative_rate"],
+                "overall_selection_rate": overall["selection_rate"],
+                "overall_high_risk_false_negative_rate": overall["high_risk_false_negative_rate"],
                 "accuracy_gap": accuracy_gap,
                 "f1_gap": f1_gap,
                 "false_negative_rate_gap": false_negative_rate_gap,
                 "selection_rate_gap": selection_rate_gap,
-                "high_risk_false_negative_rate_gap": high_risk_false_negative_rate_gap,
-                "high_risk_selection_rate_gap": high_risk_selection_rate_gap,
                 "fairness_flag": fairness_flag,
-                "notes": _fairness_note(fairness_flag, group_label, sample_size),
+                "notes": _fairness_note(fairness_flag, unknown_value),
             }
         )
 

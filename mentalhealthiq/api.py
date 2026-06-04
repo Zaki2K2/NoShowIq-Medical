@@ -229,6 +229,14 @@ def summarize_fairness_records(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Create simple frontend-ready fairness summary from report rows."""
 
     summary: Dict[str, Any] = {
+        "total_groups": 0,
+        "ok_count": 0,
+        "review_count": 0,
+        "warning_count": 0,
+        "low_sample_size_count": 0,
+        "highest_false_negative_rate_group": None,
+        "most_concerning_attribute": None,
+        "most_concerning_group_label": None,
         "highest_risk_age_group": None,
         "lowest_risk_age_group": None,
         "highest_risk_gender": None,
@@ -244,6 +252,38 @@ def summarize_fairness_records(records: List[Dict[str, Any]]) -> Dict[str, Any]:
     report_df = pd.DataFrame(records)
     if "risk_percentage" not in report_df.columns:
         report_df["risk_percentage"] = report_df.get("selection_rate", 0) * 100
+    if "group_column" not in report_df.columns and "attribute" in report_df.columns:
+        report_df["group_column"] = report_df["attribute"]
+    if "group_value" not in report_df.columns and "group" in report_df.columns:
+        report_df["group_value"] = report_df["group"]
+    if "group_label" not in report_df.columns:
+        report_df["group_label"] = report_df["group_value"].astype(str)
+
+    summary["total_groups"] = int(len(report_df))
+    flag_counts = report_df.get("fairness_flag", pd.Series(dtype=str)).fillna("OK").value_counts()
+    summary["ok_count"] = int(flag_counts.get("OK", 0))
+    summary["review_count"] = int(flag_counts.get("Review", 0))
+    summary["warning_count"] = int(flag_counts.get("Warning", 0))
+    summary["low_sample_size_count"] = int(flag_counts.get("Low Sample Size", 0))
+
+    fnr_column = "high_risk_false_negative_rate" if "high_risk_false_negative_rate" in report_df.columns else "false_negative_rate"
+    if fnr_column in report_df.columns and not report_df.empty:
+        highest_fnr = report_df.sort_values(fnr_column, ascending=False).iloc[0]
+        summary["highest_false_negative_rate_group"] = {
+            "attribute": highest_fnr.get("attribute") or highest_fnr.get("group_column"),
+            "group": highest_fnr.get("group") if "group" in highest_fnr else highest_fnr.get("group_value"),
+            "group_label": highest_fnr.get("group_label"),
+            "false_negative_rate": float(highest_fnr.get(fnr_column) or 0),
+            "fairness_flag": highest_fnr.get("fairness_flag", "OK"),
+        }
+
+    concern_order = {"Warning": 0, "Review": 1, "Low Sample Size": 2, "OK": 3}
+    concern_df = report_df.copy()
+    concern_df["_concern_rank"] = concern_df.get("fairness_flag", "OK").map(concern_order).fillna(3)
+    concern_df["_fnr"] = pd.to_numeric(concern_df.get(fnr_column, 0), errors="coerce").fillna(0)
+    most_concerning = concern_df.sort_values(["_concern_rank", "_fnr"], ascending=[True, False]).iloc[0]
+    summary["most_concerning_attribute"] = most_concerning.get("attribute") or most_concerning.get("group_column")
+    summary["most_concerning_group_label"] = most_concerning.get("group_label")
 
     for group_column, group_df in report_df.groupby("group_column"):
         group_records = group_df.sort_values("risk_percentage", ascending=False).to_dict(orient="records")

@@ -923,6 +923,7 @@ function renderFairnessPage(page) {
             ${fairnessTabButton('RIAGENDR', 'By Gender')}
             ${fairnessTabButton('RIDRETH1', 'By Race')}
             ${fairnessTabButton('INDHHIN2', 'By Income')}
+            ${fairnessTabButton('DMDEDUC2', 'By Education')}
             ${fairnessTabButton('CHECK', 'Check My Patient')}
         </div>
         <div id="fairness-content" class="main-content-card"></div>
@@ -977,7 +978,8 @@ function renderFairnessRows(type, records, summary = {}) {
         AGE_GROUP: 'Depression Risk by Age Group',
         RIAGENDR: 'Depression Risk by Gender',
         RIDRETH1: 'Depression Risk by Race',
-        INDHHIN2: 'Depression Risk by Income'
+        INDHHIN2: 'Depression Risk by Income',
+        DMDEDUC2: 'Depression Risk by Education'
     };
     const sorted = [...rows].sort((a, b) => riskPercentage(b) - riskPercentage(a));
     const highest = sorted[0];
@@ -997,7 +999,7 @@ function renderFairnessRows(type, records, summary = {}) {
                     <strong>${escapeHtml(groupLabel)}</strong>
                     <div>
                         <div class="progress-track"><div class="progress-fill ${band.toLowerCase()}" style="width:${percentage}%"></div></div>
-                        <small class="section-note">Accuracy ${roundPercent(row.accuracy)} | F1 ${roundPercent(row.f1)}${row.notes ? ` | ${escapeHtml(row.notes)}` : ''}</small>
+                        <small class="section-note">Accuracy ${roundPercent(row.accuracy)} | F1 ${roundPercent(row.f1)} | High-risk FNR ${roundPercent(row.high_risk_false_negative_rate ?? row.false_negative_rate)}${row.notes ? ` | ${escapeHtml(row.notes)}` : ''}</small>
                     </div>
                     <span class="badge ${flagClass}">${escapeHtml(flag)}</span>
                 </div>
@@ -1604,13 +1606,13 @@ function renderFairnessDashboardCharts(records) {
     if (!gender.length) {
         renderChartEmpty('genderRiskChart', 'Run fairness report to view gender risk.');
     } else {
-        safeRenderChart('genderRiskChart', barConfig(gender.map(item => formatGroupValue(item.group_column, item.group_value)), gender.map(item => Math.round(riskPercentage(item))), 'Risk %'));
+        safeRenderChart('genderRiskChart', barConfig(gender.map(item => item.group_label || formatGroupValue(item.group_column, item.group_value)), gender.map(item => Math.round(riskPercentage(item))), 'Risk %'));
     }
     if (!age.length) {
         renderChartEmpty('ageRiskChart', 'Run fairness report to view age-group risk.');
         return;
     }
-    safeRenderChart('ageRiskChart', barConfig(age.map(item => formatGroupValue(item.group_column, item.group_value)), age.map(item => Math.round(riskPercentage(item))), 'Risk %'));
+    safeRenderChart('ageRiskChart', barConfig(age.map(item => item.group_label || formatGroupValue(item.group_column, item.group_value)), age.map(item => Math.round(riskPercentage(item))), 'Risk %'));
 }
 
 function renderProbabilityChart(probabilities) {
@@ -1640,7 +1642,12 @@ function doughnutConfig(labels, values, colors) {
     return {
         type: 'doughnut',
         data: { labels, datasets: [{ data: values, backgroundColor: colors }] },
-        options: { responsive: true, maintainAspectRatio: false, cutout: '62%', plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, boxHeight: 8, padding: 16 } } } }
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '62%',
+            plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, boxHeight: 8, padding: 14, color: '#41504a', font: { weight: '700' } } } }
+        }
     };
 }
 
@@ -1664,7 +1671,7 @@ function chartOptions() {
     return {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, boxHeight: 8, padding: 16 } } },
+        plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, boxHeight: 8, padding: 14, color: '#41504a', font: { weight: '700' } } } },
         scales: {
             x: { grid: { display: false }, ticks: { color: '#64716b', maxRotation: 0, autoSkip: true } },
             y: { beginAtZero: true, grid: { color: 'rgba(100, 113, 107, 0.14)' }, ticks: { color: '#64716b' } }
@@ -1768,7 +1775,8 @@ function formatGroupValue(column, value) {
     const maps = {
         RIAGENDR: { 1: 'Male', 2: 'Female' },
         RIDRETH1: { 1: 'Mexican American', 2: 'Other Hispanic', 3: 'Non-Hispanic White', 4: 'Non-Hispanic Black', 5: 'Other Race' },
-        INDHHIN2: { 1: 'Low income', 2: 'Lower middle', 3: 'Middle', 4: 'Upper middle', 5: 'High income', 77: 'Refused', 99: 'Unknown' }
+        INDHHIN2: { 1: 'Low income', 2: 'Lower middle', 3: 'Middle', 4: 'Upper middle', 5: 'High income', 77: 'Unknown', 99: 'Unknown' },
+        DMDEDUC2: { 1: 'Less than 9th grade', 2: '9th-11th grade', 3: 'High school graduate/GED', 4: 'Some college/AA degree', 5: 'College graduate or above', 7: 'Refused', 9: "Don't know" }
     };
     return maps[column]?.[value] || value;
 }
@@ -1814,7 +1822,7 @@ function formatCompactDateTime(value) {
         hour: '2-digit',
         minute: '2-digit'
     });
-    return `${datePart} · ${timePart}`;
+    return [datePart, timePart].join(' - ');
 }
 
 function percent(value) {

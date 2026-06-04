@@ -2,21 +2,21 @@
   "artifacts": {
     "fairness_report": {
       "exists": true,
-      "modified_at": "2026-06-04T07:54:52.800082+00:00",
+      "modified_at": "2026-06-04T08:38:21.985446+00:00",
       "path": "data\\fairness_reports\\fairness_report.csv",
-      "sha256": "68a819972e5f8a9c69ee34fd29af0aa450a19d5f8c7fab3d1ece4dd8b6d0b442",
-      "size_bytes": 5997
+      "sha256": "1bec3b4ceaf7b94946db89d24f6f8a41fa3c614772324174a9d61dd8d6571d4b",
+      "size_bytes": 7800
     },
     "model": {
       "exists": true,
-      "modified_at": "2026-06-04T07:54:52.454755+00:00",
+      "modified_at": "2026-06-04T08:38:21.844462+00:00",
       "path": "data\\models\\model.joblib",
-      "sha256": "391f9b99c2fe0dca95fecdd4ae75bc77579b83a54ca910308ac6e10c23eaf1fc",
+      "sha256": "17014321f9f58c29dfb4b8adcaa79f847647817f72c86769143e6076d3b19943",
       "size_bytes": 4822
     },
     "preprocessor": {
       "exists": true,
-      "modified_at": "2026-06-04T07:54:51.509713+00:00",
+      "modified_at": "2026-06-04T08:38:21.345750+00:00",
       "path": "data\\processed\\preprocessor.joblib",
       "sha256": "e547514235c12c0a781cfb6cdacb2c185d38dbddcb30498555228def74033332",
       "size_bytes": 6218
@@ -37,28 +37,28 @@
     },
     "test": {
       "exists": true,
-      "modified_at": "2026-06-04T07:54:51.466023+00:00",
+      "modified_at": "2026-06-04T08:38:21.318738+00:00",
       "path": "data\\processed\\test.csv",
       "sha256": "e78fcb54c4af635f882efc18ac3e9d91ffa864361207a8a5a8856a97195abb56",
       "size_bytes": 568284
     },
     "test_raw": {
       "exists": true,
-      "modified_at": "2026-06-04T07:54:51.506713+00:00",
+      "modified_at": "2026-06-04T08:38:21.343221+00:00",
       "path": "data\\processed\\test_raw.csv",
       "sha256": "9943511e4c6464af12a2c3cc9fd20fbcad1be747881b1be10c58d731c39b5cc9",
       "size_bytes": 127738
     },
     "train": {
       "exists": true,
-      "modified_at": "2026-06-04T07:54:51.422737+00:00",
+      "modified_at": "2026-06-04T08:38:21.292715+00:00",
       "path": "data\\processed\\train.csv",
       "sha256": "02b42bedf09b76d257447ee92e78235cc2b28150d0892ea8629e637d33e8699e",
       "size_bytes": 1324554
     },
     "train_raw": {
       "exists": true,
-      "modified_at": "2026-06-04T07:54:51.493372+00:00",
+      "modified_at": "2026-06-04T08:38:21.335649+00:00",
       "path": "data\\processed\\train_raw.csv",
       "sha256": "353aa313bf2a155adf9801a11cd6f5f67497cb26241ee55e7139cf86eb672aca",
       "size_bytes": 297988
@@ -68,6 +68,7 @@
     "exists": true,
     "groups": [
       "AGE_GROUP",
+      "DMDEDUC2",
       "INDHHIN2",
       "RIAGENDR",
       "RIDRETH1"
@@ -76,11 +77,12 @@
     "path": "data\\fairness_reports\\fairness_report.csv",
     "required_groups_present": [
       "AGE_GROUP",
+      "DMDEDUC2",
       "INDHHIN2",
       "RIAGENDR",
       "RIDRETH1"
     ],
-    "row_count": 25
+    "row_count": 32
   },
   "features": {
     "api_primary_severity_note": "API predicted_severity now follows PHQ-9 scoring boundaries as the primary screening result. model_predicted_severity is retained as the supporting trained model estimate.",
@@ -136,7 +138,7 @@
       "SEVERITY"
     ]
   },
-  "generated_at": "2026-06-04T07:55:03.737567+00:00",
+  "generated_at": "2026-06-04T08:38:22.204493+00:00",
   "model": {
     "accuracy_note": "Current model uses PHQ-9 answers as features while SEVERITY is derived from PHQ9_TOTAL. High accuracy is expected because the model can learn the PHQ-9 scoring rule. This is appropriate for demo screening/classification, not independent clinical prediction.",
     "accuracy_suspiciously_high": true,
@@ -279,7 +281,7 @@
       "recall": 0.9913151364764268,
       "test_size": 1612,
       "train_size": 3760,
-      "trained_at": "2026-06-04T07:54:52.329290+00:00"
+      "trained_at": "2026-06-04T08:38:21.799269+00:00"
     },
     "model_type": "Logistic Regression",
     "prediction_label_distribution": {
@@ -298,7 +300,7 @@
     },
     "test_size": 1612,
     "train_size": 3760,
-    "trained_at": "2026-06-04T07:54:52.329290+00:00"
+    "trained_at": "2026-06-04T08:38:21.799269+00:00"
   },
   "phq9_total_and_severity": {
     "processed_totals_match_cleaned_phq_sum": true,

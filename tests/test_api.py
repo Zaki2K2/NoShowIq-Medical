@@ -276,4 +276,9 @@ def test_dashboard_patient_and_fairness_summary_endpoints(
     assert comparison_response.status_code == 200
     assert comparison_response.json()["has_comparison"] is False
     assert fairness_summary_response.status_code == 200
-    assert "bias_detected" in fairness_summary_response.json()
+    fairness_summary = fairness_summary_response.json()
+    assert "bias_detected" in fairness_summary
+    assert "total_groups" in fairness_summary
+    assert "warning_count" in fairness_summary
+    assert "low_sample_size_count" in fairness_summary
+    assert "highest_false_negative_rate_group" in fairness_summary
